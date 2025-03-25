@@ -4,7 +4,7 @@ import { Users, Copy, Crown, Clock, X } from "lucide-react";
 import { Editor } from "./Editor";
 import { Room as RoomType, User } from "../types";
 import { problemsData } from "../lib/api";
-import { roomAPI, getSocket, useRoom,problemAPI } from "../data/api.tsx";
+import { roomAPI, getSocket, useRoom, problemAPI } from "../data/api.tsx";
 
 interface RoomProps {
   user: User;
@@ -164,16 +164,16 @@ export function Room({ user }: RoomProps) {
     const fetchProblem = async () => {
       try {
         setProblemLoading(true);
-    
+
         const problemId = extractProblemId(room.problemId);
-    
+
         if (!problemId) {
           setError("Invalid problem ID");
           return;
         }
-    
+
         const response = await problemAPI.getById(problemId);
-    
+
         if (response) {
           setProblem(response);
         } else {
@@ -359,6 +359,61 @@ export function Room({ user }: RoomProps) {
       // Could add a toast notification here
     }
   };
+
+  const handleRunTest = async () => {
+    if (!problem?._id || !currentParticipant) return;
+
+    try {
+      const results = await problemAPI.runTestCase(
+        problem._id,
+        currentParticipant.code,
+        currentParticipant.language
+      );
+
+      // Emit test results to other participants
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("test_run", {
+          roomId: room._id,
+          userId: user.id,
+          results,
+        });
+      }
+
+      return results;
+    } catch (error) {
+      console.error("Error running tests:", error);
+      throw error;
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!problem?._id || !currentParticipant) return;
+
+    try {
+      const result = await problemAPI.submitSolution(
+        problem._id,
+        currentParticipant.code,
+        currentParticipant.language
+      );
+
+      // Emit submission results to other participants
+      const socket = getSocket();
+      if (socket) {
+        socket.emit("submission", {
+          roomId: room._id,
+          userId: user.id,
+          result,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.error("Error submitting solution:", error);
+      throw error;
+    }
+  };
+
   console.log("room", room);
   return (
     <div className="flex h-full">
@@ -403,7 +458,9 @@ export function Room({ user }: RoomProps) {
                       }
                     >
                       {participant.name}{" "}
-                      {participant.id === user.id ? `${participant.user.name}` : ""}
+                      {participant.id === user.id
+                        ? `${participant.user.name}`
+                        : ""}
                     </span>
                   </div>
                   <div className="flex items-center space-x-4">
@@ -511,6 +568,8 @@ export function Room({ user }: RoomProps) {
             onLanguageChange={handleLanguageChange}
             participants={room.participants}
             currentUserId={user.id}
+            onRunTest={handleRunTest}
+            onSubmit={handleSubmit}
           />
         </div>
       </div>

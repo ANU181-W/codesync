@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from "react";
 import MonacoEditor from "@monaco-editor/react";
-import { Code2 } from "lucide-react";
+import { Code2, Play, Send } from "lucide-react";
 import { RoomParticipant } from "../types";
+
+interface TestResult {
+  status: "success" | "error";
+  output: string;
+  expectedOutput?: string;
+  runtime?: string;
+  memory?: string;
+}
 
 interface EditorProps {
   currentFile: {
@@ -12,6 +20,9 @@ interface EditorProps {
   onLanguageChange?: (language: string) => void;
   participants?: RoomParticipant[];
   currentUserId?: string;
+  problemId: string;
+  onRunTest: (code: string, language: string) => Promise<TestResult>;
+  onSubmit: (code: string, language: string) => Promise<TestResult>;
 }
 
 export function Editor({
@@ -20,6 +31,9 @@ export function Editor({
   onLanguageChange,
   participants = [],
   currentUserId,
+  problemId,
+  onRunTest,
+  onSubmit,
 }: EditorProps) {
   const languages = [
     {
@@ -122,18 +136,50 @@ export function Editor({
     }
   };
 
+  const [isRunning, setIsRunning] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [testResult, setTestResult] = useState<TestResult | null>(null);
+
+  const handleRunTest = async () => {
+    setIsRunning(true);
+    try {
+      const result = await onRunTest(currentFile.content, currentFile.language);
+      setTestResult(result);
+    } catch (error) {
+      console.error("Error running test:", error);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const result = await onSubmit(currentFile.content, currentFile.language);
+      setTestResult(result);
+    } catch (error) {
+      console.error("Error submitting code:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b dark:border-gray-700">
         <div className="flex items-center space-x-2">
           <Code2 className="w-4 h-4 text-gray-500" />
           <select
-            className="bg-transparent border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
+            className="bg-transparent border text-[#fff] border-gray-300 dark:border-gray-600 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400"
             value={currentFile.language}
             onChange={handleLanguageChange}
           >
             {languages.map((lang) => (
-              <option key={lang.value} value={lang.value}>
+              <option
+                key={lang.value}
+                value={lang.value}
+                className="text-[#000]"
+              >
                 {lang.name}
               </option>
             ))}
@@ -143,6 +189,24 @@ export function Editor({
           <span>Tab Size: 4</span>
           <span>UTF-8</span>
           <span>LF</span>
+        </div>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleRunTest}
+            disabled={isRunning}
+            className="flex items-center space-x-2 px-4 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+          >
+            <Play className="w-4 h-4" />
+            <span>{isRunning ? "Running..." : "Run"}</span>
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="flex items-center space-x-2 px-4 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            <Send className="w-4 h-4" />
+            <span>{isSubmitting ? "Submitting..." : "Submit"}</span>
+          </button>
         </div>
       </div>
 
@@ -193,6 +257,44 @@ export function Editor({
           }}
         />
       </div>
+
+      {testResult && (
+        <div className="h-1/3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto">
+          <div className="p-4">
+            <h3 className="text-lg font-semibold mb-2">
+              {testResult.status === "success" ? "Test Passed!" : "Test Failed"}
+            </h3>
+            <div className="space-y-2">
+              <div className="flex space-x-4">
+                <span className="text-sm text-gray-500">Runtime:</span>
+                <span className="text-sm">{testResult.runtime}</span>
+              </div>
+              <div className="flex space-x-4">
+                <span className="text-sm text-gray-500">Memory:</span>
+                <span className="text-sm">{testResult.memory}</span>
+              </div>
+              {testResult.status === "error" && (
+                <>
+                  <div className="mt-2">
+                    <span className="text-sm text-gray-500">Your Output:</span>
+                    <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                      {testResult.output}
+                    </pre>
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-sm text-gray-500">
+                      Expected Output:
+                    </span>
+                    <pre className="mt-1 p-2 bg-gray-100 dark:bg-gray-700 rounded">
+                      {testResult.expectedOutput}
+                    </pre>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

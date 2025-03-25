@@ -195,6 +195,32 @@ const problemAPI = {
       throw new Error(error.message || "Failed to submit solution");
     }
   },
+
+  runTestCase: async (problemId: string, code: string, language: string) => {
+    try {
+      const response = await api.post(`/submissions/test`, {
+        problemId,
+        code,
+        language,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.message || "Failed to run test cases");
+    }
+  },
+
+  submitSolution: async (problemId: string, code: string, language: string) => {
+    try {
+      const response = await api.post(`/submissions`, {
+        problemId,
+        code,
+        language,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.message || "Failed to submit solution");
+    }
+  },
 };
 
 // Room APIs
