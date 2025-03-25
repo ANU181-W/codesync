@@ -4,7 +4,7 @@ import { Users, Copy, Crown, Clock, X } from "lucide-react";
 import { Editor } from "./Editor";
 import { Room as RoomType, User } from "../types";
 import { problemsData } from "../lib/api";
-import { roomAPI, getSocket, useRoom } from "../data/api.tsx";
+import { roomAPI, getSocket, useRoom,problemAPI } from "../data/api.tsx";
 
 interface RoomProps {
   user: User;
@@ -162,39 +162,27 @@ export function Room({ user }: RoomProps) {
     let isMounted = true;
 
     const fetchProblem = async () => {
-      if (!isMounted) return;
-
       try {
         setProblemLoading(true);
-
-        // Extract the ID string using our helper function
+    
         const problemId = extractProblemId(room.problemId);
-
+    
         if (!problemId) {
-          if (isMounted) setError("Invalid problem ID");
+          setError("Invalid problem ID");
           return;
         }
-
-        console.log("Fetching problem data for ID:", problemId);
-
-        const response = await problemsData.getById(problemId);
-
-        // Handle the response based on your API structure
-        if (response && response.data && isMounted) {
-          console.log("Got problem data:", response.data);
-          setProblem(response.data);
-        } else if (isMounted) {
+    
+        const response = await problemAPI.getById(problemId);
+    
+        if (response) {
+          setProblem(response);
+        } else {
           setError("Invalid problem data received");
         }
       } catch (err: any) {
-        console.error("Error fetching problem:", err);
-        if (isMounted) {
-          setError(err.message || "Failed to fetch problem data");
-        }
+        setError(err.message || "Failed to fetch problem data");
       } finally {
-        if (isMounted) {
-          setProblemLoading(false);
-        }
+        setProblemLoading(false);
       }
     };
 
@@ -203,7 +191,7 @@ export function Room({ user }: RoomProps) {
     return () => {
       isMounted = false;
     };
-  }, [room?.problemId]);
+  }, [room?.problemId._id, problemLoading, problem]);
 
   // Set up socket event handlers - only once when room is loaded with valid ID
   useEffect(() => {
@@ -371,7 +359,7 @@ export function Room({ user }: RoomProps) {
       // Could add a toast notification here
     }
   };
-
+  console.log("room", room);
   return (
     <div className="flex h-full">
       {/* Problem Description */}
@@ -415,7 +403,7 @@ export function Room({ user }: RoomProps) {
                       }
                     >
                       {participant.name}{" "}
-                      {participant.id === user.id ? "(You)" : ""}
+                      {participant.id === user.id ? `${participant.user.name}` : ""}
                     </span>
                   </div>
                   <div className="flex items-center space-x-4">

@@ -10,6 +10,7 @@ import userRoutes from "./routes/userRoutes.js";
 import problemRoutes from "./routes/problemRoutes.js";
 import roomRoutes from "./routes/roomRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import submissionRoutes from "./routes/submissionRoutes.js";
 
 // ES Module fix for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -60,6 +61,7 @@ const startServer = async () => {
     app.use("/api/problems", problemRoutes);
     app.use("/api/rooms", roomRoutes);
     app.use("/api/admin", adminRoutes);
+    app.use("/api/submissions", submissionRoutes);
 
     // Error handling middleware
     app.use((err, req, res, next) => {
@@ -91,6 +93,20 @@ const startServer = async () => {
         socket.to(data.roomId).emit("cursor_update", {
           userId: data.userId,
           position: data.position,
+        });
+      });
+
+      socket.on("test_run", (data) => {
+        socket.to(data.roomId).emit("test_result", {
+          userId: data.userId,
+          results: data.results,
+        });
+      });
+
+      socket.on("submission", (data) => {
+        socket.to(data.roomId).emit("submission_result", {
+          userId: data.userId,
+          result: data.result,
         });
       });
 
