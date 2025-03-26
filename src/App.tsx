@@ -74,7 +74,7 @@ function App() {
                 onLogout={handleLogout}
               />
 
-              <main className="h-[calc(100vh-4rem)]">
+              <main>
                 <Routes>
                   <Route
                     path="/"
