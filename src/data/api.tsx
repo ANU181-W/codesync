@@ -13,6 +13,7 @@ export const initializeSocket = () => {
       transports: ["websocket", "polling"],
     });
 
+    // Ensure event listeners are only added once
     socket.on("connect", () => {
       console.log("Socket connected");
     });
@@ -325,6 +326,12 @@ const useRoom = (roomId: string) => {
       currentSocket.off("code_update");
       currentSocket.on("code_update", callback);
     }
+    // Return a cleanup function
+    return () => {
+      if (currentSocket) {
+        currentSocket.off("code_update", callback);
+      }
+    };
   };
 
   const onCursorMove = (
@@ -335,6 +342,12 @@ const useRoom = (roomId: string) => {
       currentSocket.off("cursor_update");
       currentSocket.on("cursor_update", callback);
     }
+    // Return a cleanup function
+    return () => {
+      if (currentSocket) {
+        currentSocket.off("cursor_update", callback);
+      }
+    };
   };
 
   const emitCursorMove = (position: any) => {

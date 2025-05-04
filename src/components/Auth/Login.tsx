@@ -1,11 +1,17 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import { authAPI } from "../../data/api.tsx";
 import { GoogleLogin } from "@react-oauth/google";
 
-export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
+export function Login({
+  onLogin,
+  setIsAfterLogin,
+}: {
+  onLogin: (user: any) => void;
+  setIsAfterLogin: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,6 +20,17 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // New state
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      onLogin({
+        /* user data from authAPI */
+      }); // Pass user data here if available
+      navigate("/dashboard");
+      setIsAfterLogin(true); // Set the state to indicate login is complete
+    }
+  }, [isAuthenticated, navigate, onLogin]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,7 +39,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
 
     try {
       const { user } = await authAPI.login(email, password);
-
       onLogin(user);
       navigate("/dashboard");
     } catch (err: any) {
@@ -36,8 +52,7 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
     try {
       const { user } = await authAPI.googleAuth(credentialResponse.credential);
       console.log("user:", user);
-      onLogin(user);
-      navigate("/dashboard");
+      setIsAuthenticated(true); // Trigger re-render and navigation
     } catch (err: any) {
       setError(err.message || "Failed to login with Google");
     }
@@ -110,7 +125,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
               </div>
             </div>
           )}
-
           <div>
             <label
               htmlFor="otp"
@@ -130,7 +144,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
               />
             </div>
           </div>
-
           <div>
             <button
               type="submit"
@@ -166,7 +179,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
             </div>
           </div>
         )}
-
         <div>
           <label
             htmlFor="email"
@@ -189,7 +201,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
             />
           </div>
         </div>
-
         <div>
           <label
             htmlFor="password"
@@ -223,7 +234,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
             </button>
           </div>
         </div>
-
         <div className="flex items-center justify-between">
           <div className="text-sm">
             <a
@@ -241,7 +251,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
             Sign in with OTP
           </button>
         </div>
-
         <div>
           <button
             type="submit"
@@ -251,7 +260,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
             {loading ? "Signing in..." : "Sign in"}
           </button>
         </div>
-
         <div className="mt-6">
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
@@ -263,7 +271,6 @@ export function Login({ onLogin }:{onLogin:(user:any)=>void}) {
               </span>
             </div>
           </div>
-
           <div className="mt-6">
             <GoogleLogin
               onSuccess={handleGoogleSuccess}

@@ -18,6 +18,7 @@ function App() {
   const [showUserProfile, setShowUserProfile] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [isAfterLogin, setIsAfterLogin] = useState(false);
 
   useEffect(() => {
     if (theme === "dark") {
@@ -33,6 +34,7 @@ function App() {
       authAPI
         .getCurrentUser()
         .then((userData) => {
+          console.log("User Data:", userData);
           setUser(userData);
         })
         .catch((err) => {
@@ -45,7 +47,7 @@ function App() {
     } else {
       setLoading(false);
     }
-  }, []);
+  }, [isAfterLogin]);
 
   const handleLogout = () => {
     authAPI.logout();
@@ -87,7 +89,10 @@ function App() {
                     element={<Dashboard user={user} />}
                   />
                   <Route path="/room/:roomId" element={<Room user={user} />} />
-
+                  <Route
+                    path="/room/:roomId/join"
+                    element={<Room user={user} />}
+                  />
                   {/* Admin Access Route with Role Check */}
                   <Route
                     path="/admin/*"
@@ -120,7 +125,12 @@ function App() {
             </>
           ) : (
             <Routes>
-              <Route path="/login" element={<Login onLogin={setUser} />} />
+              <Route
+                path="/login"
+                element={
+                  <Login setIsAfterLogin={setIsAfterLogin} onLogin={setUser} />
+                }
+              />
               <Route path="/signup" element={<Signup onSignup={setUser} />} />
               <Route path="*" element={<Navigate to="/login" replace />} />
             </Routes>

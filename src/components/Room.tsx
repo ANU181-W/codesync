@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Users, Copy, Crown, Clock, X } from "lucide-react";
+import { toast } from "react-toastify";
 import { Editor } from "./Editor";
 import { Room as RoomType, User } from "../types";
-import { problemsData } from "../lib/api";
 import { roomAPI, getSocket, useRoom, problemAPI } from "../data/api.tsx";
 
 interface RoomProps {
   user: User;
 }
 
-// Define a Problem interface based on the actual data structure
 interface Problem {
   _id: string;
   title: string;
@@ -32,7 +31,6 @@ interface Problem {
   __v: number;
 }
 
-// Define possible types for the problemId field
 type ProblemIdType = string | { _id: string } | unknown;
 
 export function Room({ user }: RoomProps) {
@@ -47,10 +45,11 @@ export function Room({ user }: RoomProps) {
   const [problem, setProblem] = useState<Problem | null>(null);
   const [problemLoading, setProblemLoading] = useState(false);
   const roomJoinedRef = useRef(false);
+  const hasLoadedRef = useRef(false);
 
-  // Ensure we have a valid roomId
   const validRoomId = roomId || "";
 
+  // Destructure all values directly from useRoom
   const {
     joinRoom,
     leaveRoom,
@@ -60,7 +59,26 @@ export function Room({ user }: RoomProps) {
     emitCursorMove,
   } = useRoom(validRoomId);
 
-  // Initialize timer for session
+  // Memoize the functions to ensure stability in useEffect dependencies
+  const roomActions = useMemo(
+    () => ({
+      joinRoom,
+      leaveRoom,
+      updateCode,
+      onCodeChange,
+      onCursorMove,
+      emitCursorMove,
+    }),
+    [
+      joinRoom,
+      leaveRoom,
+      updateCode,
+      onCodeChange,
+      onCursorMove,
+      emitCursorMove,
+    ]
+  );
+
   useEffect(() => {
     if (room && !timerRef.current) {
       timerRef.current = setInterval(() => {
@@ -76,7 +94,6 @@ export function Room({ user }: RoomProps) {
     };
   }, [room]);
 
-  // Format time as mm:ss
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -85,51 +102,154 @@ export function Room({ user }: RoomProps) {
       .padStart(2, "0")}`;
   };
 
+  const handleJoinRoom = async () => {
+    try {
+      if (room?.participants.some((p) => p.id === user.id)) {
+        console.log("User already in room, skipping join");
+        return;
+      }
+
+      console.log("Joining room:", validRoomId);
+      await joinRoom(); // Use joinRoom directly
+
+      setRoom((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          participants: [
+            ...prev.participants,
+            {
+              id: user.id,
+              name: user.name,
+              role: "participant",
+              language: "javascript",
+              code: "",
+              user: user,
+            },
+          ],
+        };
+      });
+
+      roomJoinedRef.current = true;
+      toast.success("Successfully joined the room!");
+    } catch (err: any) {
+      console.error("Join room error:", err);
+      throw new Error(err.message || "Failed to join room");
+    }
+  };
+
   useEffect(() => {
     if (!roomId) {
+      console.error("No roomId provided");
       setError("Invalid room ID.");
       navigate("/problems");
       return;
     }
 
+    if (hasLoadedRef.current) {
+      console.log("Initial load already completed, skipping effect");
+      return;
+    }
+
+    let isMounted = true;
+
+    const connectSocket = () => {
+      return new Promise((resolve, reject) => {
+        const socket = getSocket();
+        if (socket.connected) {
+          console.log("Socket already connected");
+          resolve(socket);
+          return;
+        }
+
+        const timeout = setTimeout(() => {
+          reject(new Error("Socket connection timed out"));
+        }, 5000);
+
+        const onConnect = () => {
+          clearTimeout(timeout);
+          console.log("Socket connected successfully");
+          resolve(socket);
+        };
+
+        const onConnectError = (err: any) => {
+          clearTimeout(timeout);
+          console.error("Socket connection error:", err);
+          reject(err);
+        };
+
+        socket.on("connect", onConnect);
+        socket.on("connect_error", onConnectError);
+
+        console.log("Attempting to connect socket");
+        socket.connect();
+
+        // Cleanup listeners to prevent duplicates
+        return () => {
+          socket.off("connect", onConnect);
+          socket.off("connect_error", onConnectError);
+        };
+      });
+    };
+
     const loadRoom = async () => {
-      if (roomJoinedRef.current) return;
+      console.log("skipping:", roomJoinedRef);
+      if (roomJoinedRef.current) {
+        console.log("Room already joined, skipping load");
+        return;
+      }
       setLoading(true);
+      console.log("Loading room with ID:", roomId);
 
       try {
-        const socket = getSocket();
-        if (!socket.connected) {
-          socket.connect();
-        }
-
+        const cleanupSocketListeners = await connectSocket();
+        console.log("Fetching room data for ID:", roomId);
         const roomData = await roomAPI.getById(roomId);
-        if (!roomData) throw new Error("Room not found.");
-        setRoom(roomData);
-        setInviteUrl(`${window.location.origin}/room/${roomId}/join`);
-
-        if (roomData.createdBy !== user.id) {
-          await joinRoom();
-          roomJoinedRef.current = true;
+        if (!roomData) {
+          throw new Error("Room not found.");
         }
-      } catch (err) {
-        console.error("Error loading room:", err);
-        setError(err?.response?.data?.message || "Failed to load room.");
-        setTimeout(() => navigate("/problems"), 3000);
+        if (isMounted) {
+          console.log("Setting room data:", roomData);
+          setRoom(roomData);
+          setInviteUrl(`${window.location.origin}/room/${roomId}/join`);
+        }
+        await handleJoinRoom();
+      } catch (err: any) {
+        console.error("Error in loadRoom:", err);
+        let errorMessage = "Failed to load room.";
+        if (err.message === "Room not found") {
+          errorMessage = "The requested room does not exist.";
+        } else if (err.message.includes("Room is full")) {
+          errorMessage = "The room is full.";
+        } else if (err.message.includes("already in this room")) {
+          errorMessage = "You are already a participant in this room.";
+        } else if (err.message.includes("Socket connection")) {
+          errorMessage = "Failed to connect to the server.";
+        }
+        if (isMounted) {
+          setError(errorMessage);
+          setTimeout(() => navigate("/problems"), 3000);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          console.log("Setting loading to false");
+          setLoading(false);
+          hasLoadedRef.current = true;
+        }
       }
     };
 
     loadRoom();
 
     return () => {
+      isMounted = false;
       if (roomJoinedRef.current) {
-        leaveRoom();
+        console.log("Leaving room on cleanup");
+        leaveRoom(); // Use leaveRoom directly
       }
     };
-  }, [roomId, navigate, user.id, joinRoom, leaveRoom]);
+  }, [roomId, navigate, user.id]); // Removed roomActions from dependencies
 
-  // Helper function to extract problem ID safely
   const extractProblemId = (problemId: ProblemIdType): string => {
     if (!problemId) return "";
 
@@ -138,14 +258,12 @@ export function Room({ user }: RoomProps) {
     }
 
     if (typeof problemId === "object" && problemId !== null) {
-      // Use type assertion with a check to safely access _id
       const problemObj = problemId as { _id?: string };
       if (problemObj._id) {
         return problemObj._id;
       }
     }
 
-    // Fallback: convert to string if possible or return empty string
     try {
       return String(problemId);
     } catch {
@@ -153,7 +271,6 @@ export function Room({ user }: RoomProps) {
     }
   };
 
-  // Fetch problem data - only when room is loaded and problem not yet fetched
   useEffect(() => {
     if (!room?.problemId || problemLoading || problem) {
       return;
@@ -164,25 +281,29 @@ export function Room({ user }: RoomProps) {
     const fetchProblem = async () => {
       try {
         setProblemLoading(true);
-
         const problemId = extractProblemId(room.problemId);
-
         if (!problemId) {
-          setError("Invalid problem ID");
-          return;
+          throw new Error("Invalid problem ID");
         }
 
+        console.log("Fetching problem with ID:", problemId);
         const response = await problemAPI.getById(problemId);
-
-        if (response) {
+        if (!response) {
+          throw new Error("Invalid problem data received");
+        }
+        if (isMounted) {
+          console.log("Setting problem data:", response);
           setProblem(response);
-        } else {
-          setError("Invalid problem data received");
         }
       } catch (err: any) {
-        setError(err.message || "Failed to fetch problem data");
+        console.error("Error fetching problem:", err);
+        if (isMounted) {
+          setError(err.message || "Failed to fetch problem data");
+        }
       } finally {
-        setProblemLoading(false);
+        if (isMounted) {
+          setProblemLoading(false);
+        }
       }
     };
 
@@ -191,13 +312,11 @@ export function Room({ user }: RoomProps) {
     return () => {
       isMounted = false;
     };
-  }, [room?.problemId._id, problemLoading, problem]);
+  }, [room?.problemId, problem]); // Removed problemLoading from dependencies
 
-  // Set up socket event handlers - only once when room is loaded with valid ID
   useEffect(() => {
     if (!validRoomId || !room) return;
 
-    // Configure socket event handlers
     const handleCodeUpdate = ({
       userId,
       code,
@@ -226,27 +345,24 @@ export function Room({ user }: RoomProps) {
       position: any;
     }) => {
       console.log(`User ${userId} moved cursor to:`, position);
-      // Implement cursor display logic here if needed
     };
 
-    // Set up event handlers
-    const codeUnsubscribe = onCodeChange(handleCodeUpdate);
-    const cursorUnsubscribe = onCursorMove(handleCursorUpdate);
+    const codeUnsubscribe = roomActions.onCodeChange(handleCodeUpdate);
+    const cursorUnsubscribe = roomActions.onCursorMove(handleCursorUpdate);
 
-    // Return cleanup function to remove listeners
     return () => {
       if (typeof codeUnsubscribe === "function") codeUnsubscribe();
       if (typeof cursorUnsubscribe === "function") cursorUnsubscribe();
     };
-  }, [validRoomId, room?._id, onCodeChange, onCursorMove]);
+  }, [validRoomId, room, roomActions]);
 
   const copyInviteUrl = () => {
     navigator.clipboard.writeText(inviteUrl);
-    // Could add a toast notification here
+    toast.success("Invite link copied to clipboard!");
   };
 
-  // Show loading state - only when initial room loading
   if (loading) {
+    console.log("Rendering loading state");
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
@@ -257,8 +373,8 @@ export function Room({ user }: RoomProps) {
     );
   }
 
-  // Show error state
   if (error) {
+    console.log("Rendering error state:", error);
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center text-red-500">
@@ -269,11 +385,13 @@ export function Room({ user }: RoomProps) {
     );
   }
 
-  // Ensure room data is loaded
-  if (!room) return null;
+  if (!room) {
+    console.log("No room data, rendering null");
+    return null;
+  }
 
-  // Check if problem is still loading - show specific loading state
   if (problemLoading) {
+    console.log("Rendering problem loading state");
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center">
@@ -284,15 +402,15 @@ export function Room({ user }: RoomProps) {
     );
   }
 
-  // Ensure problem data is loaded
   if (!problem) {
+    console.log("No problem data");
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center text-red-500">
           <p>Problem not found</p>
           <button
             onClick={() => navigate("/problems")}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg"
+            className="mt-4 px-4 py-2 bg-blue-5 00 text-white rounded-lg"
           >
             Return to Problems
           </button>
@@ -303,13 +421,14 @@ export function Room({ user }: RoomProps) {
 
   const currentParticipant = room.participants.find((p) => p.id === user.id);
   if (!currentParticipant) {
+    console.log("User not a participant");
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center text-red-500">
           <p>You are not a participant in this room</p>
           <button
             onClick={() => navigate("/problems")}
-            className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg"
+            className="mt-4 px-4 py-2 bg-blue-5 00 text-white rounded-lg"
           >
             Return to Problems
           </button>
@@ -320,9 +439,7 @@ export function Room({ user }: RoomProps) {
 
   const handleCodeChange = async (content: string) => {
     try {
-      await updateCode(content, currentParticipant.language);
-
-      // Update local state immediately for better UX
+      await roomActions.updateCode(content, currentParticipant.language);
       setRoom((prev) => {
         if (!prev) return prev;
         return {
@@ -334,7 +451,7 @@ export function Room({ user }: RoomProps) {
       });
     } catch (error) {
       console.error("Error updating code:", error);
-      // Could add a toast notification here
+      toast.error("Failed to update code.");
     }
   };
 
@@ -342,9 +459,7 @@ export function Room({ user }: RoomProps) {
     if (!currentParticipant?.code) return;
 
     try {
-      await updateCode(currentParticipant.code, language);
-
-      // Update local state immediately for better UX
+      await roomActions.updateCode(currentParticipant.code, language);
       setRoom((prev) => {
         if (!prev) return prev;
         return {
@@ -356,7 +471,7 @@ export function Room({ user }: RoomProps) {
       });
     } catch (error) {
       console.error("Error updating language:", error);
-      // Could add a toast notification here
+      toast.error("Failed to update language.");
     }
   };
 
@@ -369,8 +484,6 @@ export function Room({ user }: RoomProps) {
         currentParticipant.code,
         currentParticipant.language
       );
-
-      // Emit test results to other participants
       const socket = getSocket();
       if (socket) {
         socket.emit("test_run", {
@@ -379,10 +492,10 @@ export function Room({ user }: RoomProps) {
           results,
         });
       }
-
       return results;
     } catch (error) {
       console.error("Error running tests:", error);
+      toast.error("Failed to run tests.");
       throw error;
     }
   };
@@ -396,8 +509,6 @@ export function Room({ user }: RoomProps) {
         currentParticipant.code,
         currentParticipant.language
       );
-
-      // Emit submission results to other participants
       const socket = getSocket();
       if (socket) {
         socket.emit("submission", {
@@ -406,18 +517,17 @@ export function Room({ user }: RoomProps) {
           result,
         });
       }
-
       return result;
     } catch (error) {
       console.error("Error submitting solution:", error);
+      toast.error("Failed to submit solution.");
       throw error;
     }
   };
 
-  console.log("room", room);
+  console.log("Rendering room, participants:", room.participants);
   return (
     <div className="flex h-full">
-      {/* Problem Description */}
       <div className="w-[45%] p-6 border-r dark:border-gray-700 overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-4">
@@ -459,7 +569,7 @@ export function Room({ user }: RoomProps) {
                     >
                       {participant.name}{" "}
                       {participant.id === user.id
-                        ? `${participant.user.name}`
+                        ? `(${participant.user.name})`
                         : ""}
                     </span>
                   </div>
@@ -534,7 +644,6 @@ export function Room({ user }: RoomProps) {
         </div>
       </div>
 
-      {/* Code Editor */}
       <div className="flex-1 flex flex-col">
         <div className="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
           <div className="flex items-center space-x-4">
@@ -547,7 +656,7 @@ export function Room({ user }: RoomProps) {
           </div>
           <button
             onClick={() => {
-              leaveRoom();
+              roomActions.leaveRoom();
               navigate("/problems");
             }}
             className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg"
@@ -558,7 +667,6 @@ export function Room({ user }: RoomProps) {
         </div>
 
         <div className="flex-1">
-          {/* Initialize editor with starterCode if code is empty */}
           <Editor
             currentFile={{
               language: currentParticipant?.language || "javascript",
